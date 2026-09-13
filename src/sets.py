@@ -3,7 +3,7 @@
 All sets are implemented as State-based CvRDTs.
 """
 
-from typing import Any, Set
+from typing import Any, Set, Dict
 from uuid import uuid4
 from .crdt_base import CvRDT
 
@@ -176,9 +176,8 @@ class UniqueSet(CvRDT):
     """
 
     def __init__(self) -> None:
-        """Initialize an empty Unique-Set."""
-        # TODO: Implement
-        pass
+        """Initialize an empty Unique-Set.""" 
+        self._tags: Dict[Any, Set[str]] = {}
 
     def add(self, element: Any) -> str:
         """Add an element and return its unique tag.
@@ -189,8 +188,11 @@ class UniqueSet(CvRDT):
         Returns:
             A unique tag (string) for this add operation
         """
-        # TODO: Implement
-        pass
+        tag = str(uuid4())
+        if element not in self._tags:
+            self._tags[element] = set()
+        self._tags[element].add(tag)
+        return tag
 
     def remove(self, element: Any, uid: str) -> None:
         """Remove a specific instance of an element.
@@ -199,8 +201,10 @@ class UniqueSet(CvRDT):
             element: The element to remove
             uid: The unique tag of the add operation to remove
         """
-        # TODO: Implement
-        pass
+        if element in self._tags:
+            self._tags[element].discard(uid)
+            if not self._tags[element]:
+                del self._tags[element]
 
     def contains(self, element: Any) -> bool:
         """Check if an element is in the set.
@@ -208,31 +212,31 @@ class UniqueSet(CvRDT):
         An element is in the set if there exists at least one tag for it
         in the set.
         """
-        # TODO: Implement
-        pass
+        return element in self._tags and len(self._tags[element]) > 0
 
     def elements(self) -> Set[Any]:
         """Return all elements currently in the set."""
-        # TODO: Implement
-        pass
+        return set(self._tags.keys())
 
     def merge(self, other: "UniqueSet") -> None:
         """Merge another Unique-Set into this one.
         
         The merged set is the union of all (element, tag) pairs from both sets.
         """
-        # TODO: Implement
-        pass
+        for element, tags in other._tags.items():
+            if element not in self._tags:
+                self._tags[element] = set()
+            self._tags[element] |= tags
 
     def __eq__(self, other: Any) -> bool:
         """Check if two Unique-Sets have the same state."""
-        # TODO: Implement
-        pass
+        if not isinstance(other, UniqueSet):
+            return False
+        return self._tags == other._tags
 
     def __repr__(self) -> str:
         """Return string representation of the set."""
-        # TODO: Implement
-        pass
+        return f"UniqueSet({self._tags})"
 
 
 class ORSet(CvRDT):
@@ -263,8 +267,9 @@ class ORSet(CvRDT):
         Args:
             replica_id: The ID of this replica (for causal tracking)
         """
-        # TODO: Implement
-        pass
+        self._replica_id = replica_id
+        self._adds: Dict[Any, Set[str]] = {}
+        self._removed: Set[str] = set()
 
     def add(self, element: Any) -> str:
         """Add an element and return its unique tag.
@@ -275,8 +280,11 @@ class ORSet(CvRDT):
         Returns:
             A unique tag identifying this add operation
         """
-        # TODO: Implement
-        pass
+        tag = str(uuid4())
+        if element not in self._adds:
+            self._adds[element] = set()
+        self._adds[element].add(tag)
+        return tag
 
     def remove(self, element: Any, uid: str) -> None:
         """Remove a specific instance of an element.
@@ -285,18 +293,23 @@ class ORSet(CvRDT):
             element: The element to remove
             uid: The tag of the add operation to remove
         """
-        # TODO: Implement
-        pass
+        # Вместо удаления из _adds — добавляем в tombstones
+        self._removed.add(uid)
 
     def contains(self, element: Any) -> bool:
         """Check if an element is in the set."""
-        # TODO: Implement
-        pass
+        if element not in self._adds:
+            return False
+        active = self._adds[element] - self._removed
+        return len(active) > 0
 
     def elements(self) -> Set[Any]:
         """Return all elements currently in the set."""
-        # TODO: Implement
-        pass
+        result = set()
+        for element, tags in self._adds.items():
+            if tags - self._removed:
+                result.add(element)
+        return result
 
     def merge(self, other: "ORSet") -> None:
         """Merge another OR-Set into this one.
@@ -305,15 +318,18 @@ class ORSet(CvRDT):
         and all removals are respected (if both have seen an add and a remove,
         it's removed).
         """
-        # TODO: Implement
-        pass
+        for element, tags in other._adds.items():
+            if element not in self._adds:
+                self._adds[element] = set()
+            self._adds[element] |= tags
+        self._removed |= other._removed
 
     def __eq__(self, other: Any) -> bool:
         """Check if two OR-Sets have the same state."""
-        # TODO: Implement
-        pass
+        if not isinstance(other, ORSet):
+            return False
+        return self._adds == other._adds and self._removed == other._removed
 
     def __repr__(self) -> str:
         """Return string representation of the set."""
-        # TODO: Implement
-        pass
+        return f"ORSet(adds={self._adds}, removed={self._removed})"
