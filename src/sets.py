@@ -30,45 +30,40 @@ class GrowOnlySet(CvRDT):
 
     def __init__(self) -> None:
         """Initialize an empty grow-only set."""
-        # TODO: Implement
-        pass
+        self._elements: Set[Any] = set()
 
     def add(self, element: Any) -> None:
         """Add an element to the set.
         
         This operation is idempotent - adding the same element twice
         has the same effect as adding it once.
-        """
-        # TODO: Implement
-        pass
+        """ 
+        self._elements.add(element)
 
     def contains(self, element: Any) -> bool:
-        """Check if an element is in the set."""
-        # TODO: Implement
-        pass
+        """Check if an element is in the set.""" 
+        return element in self._elements
 
     def elements(self) -> Set[Any]:
-        """Return all elements in the set."""
-        # TODO: Implement
-        pass
+        """Return all elements in the set.""" 
+        return set(self._elements)  # копия, чтобы снаружи не мутировали
 
     def merge(self, other: "GrowOnlySet") -> None:
         """Merge another grow-only set into this one.
         
         The result contains all elements from both sets (set union).
-        """
-        # TODO: Implement
-        pass
+        """ 
+        self._elements |= other._elements
 
     def __eq__(self, other: Any) -> bool:
         """Check if two grow-only sets have the same elements."""
-        # TODO: Implement
-        pass
+        if not isinstance(other, GrowOnlySet):
+            return False
+        return self._elements == other._elements
 
     def __repr__(self) -> str:
-        """Return string representation of the set."""
-        # TODO: Implement
-        pass
+        """Return string representation of the set.""" 
+        return f"GrowOnlySet({self._elements})"
 
 
 class PNSet(CvRDT):
@@ -83,6 +78,8 @@ class PNSet(CvRDT):
     
     Problem: If an element is added, then removed, then the add operation
     is replayed from another branch, the element will reappear.
+    -- MY COMMENT BECAUSE HE WAS ADDED WITH ANOTHER UID  
+    -- MY COMMENT Here uid is responsibility for whom who adds
     This is a known limitation of PN-Sets.
     
     Example:
@@ -98,8 +95,8 @@ class PNSet(CvRDT):
 
     def __init__(self) -> None:
         """Initialize an empty PN-Set."""
-        # TODO: Implement
-        pass
+        self._adds: Set[tuple] = set()
+        self._removes: Set[tuple] = set()
 
     def add(self, element: Any, uid: str) -> None:
         """Add an element with a unique ID.
@@ -107,9 +104,8 @@ class PNSet(CvRDT):
         Args:
             element: The element to add
             uid: A unique identifier for this add operation
-        """
-        # TODO: Implement
-        pass
+        """ 
+        self._adds.add((element, uid))
 
     def remove(self, element: Any, uid: str) -> None:
         """Remove an element by removing a specific uid.
@@ -117,9 +113,8 @@ class PNSet(CvRDT):
         Args:
             element: The element to remove
             uid: The uid of the add operation to remove
-        """
-        # TODO: Implement
-        pass
+        """ 
+        self._removes.add((element, uid))
 
     def contains(self, element: Any) -> bool:
         """Check if an element is in the set.
@@ -127,13 +122,18 @@ class PNSet(CvRDT):
         An element is in the set if there exists at least one uid for which
         (element, uid) is in P but not in N.
         """
-        # TODO: Implement
-        pass
+        for (el, uid) in self._adds:
+            if el == element and (el, uid) not in self._removes:
+                return True
+        return False
 
     def elements(self) -> Set[Any]:
         """Return all elements currently in the set."""
-        # TODO: Implement
-        pass
+        result = set()
+        for (el, uid) in self._adds:
+            if (el, uid) not in self._removes:
+                result.add(el)
+        return result
 
     def merge(self, other: "PNSet") -> None:
         """Merge another PN-Set into this one.
@@ -142,18 +142,18 @@ class PNSet(CvRDT):
         - Union of add sets: P_merged = P1 ∪ P2
         - Union of remove sets: N_merged = N1 ∪ N2
         """
-        # TODO: Implement
-        pass
+        self._adds |= other._adds
+        self._removes |= other._removes
 
     def __eq__(self, other: Any) -> bool:
         """Check if two PN-Sets have the same state."""
-        # TODO: Implement
-        pass
+        if not isinstance(other, PNSet):
+            return False
+        return self._adds == other._adds and self._removes == other._removes
 
     def __repr__(self) -> str:
-        """Return string representation of the set."""
-        # TODO: Implement
-        pass
+        """Return string representation of the set.""" 
+        return f"PNSet(adds={self._adds}, removes={self._removes})"
 
 
 class UniqueSet(CvRDT):
