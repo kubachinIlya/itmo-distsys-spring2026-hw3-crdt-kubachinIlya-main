@@ -4,7 +4,7 @@ Registers are implemented as Operation-based CRDTs (CmRDT).
 Each write operation is tracked and replicated across all replicas.
 """
 
-from typing import Any, Optional, List, Tuple
+from typing import Any, Optional, List, Tuple, Dict
 from .crdt_base import CmRDT
 
 
@@ -34,8 +34,10 @@ class LWWRegister(CmRDT):
 
     def __init__(self) -> None:
         """Initialize an empty LWW register."""
-        # TODO: Implement
-        pass
+        self._value: Optional[Any] = None
+        self._timestamp: float = float("-inf")
+        self._replica_id: str = ""
+        self._has_value: bool = False
 
     def read(self) -> Optional[Any]:
         """Read the current value from the register.
@@ -43,8 +45,7 @@ class LWWRegister(CmRDT):
         Returns:
             The current value or None if register is empty
         """
-        # TODO: Implement
-        pass
+        return self._value if self._has_value else None
 
     def write(self, value: Any, timestamp: float, replica_id: str) -> None:
         """Execute a write operation.
@@ -54,8 +55,7 @@ class LWWRegister(CmRDT):
             timestamp: The timestamp of this write
             replica_id: The ID of the replica performing the write
         """
-        # TODO: Implement
-        pass
+        self.apply_operation(value, {"timestamp": timestamp, "replica_id": replica_id})
 
     def apply_operation(self, operation: Any, metadata: Any = None) -> None:
         """Apply a write operation from another replica.
@@ -64,8 +64,15 @@ class LWWRegister(CmRDT):
             operation: The value that was written
             metadata: Dict with 'timestamp' and 'replica_id'
         """
-        # TODO: Implement
-        pass
+        if metadata is None:
+            return
+        ts = metadata["timestamp"]
+        rid = metadata["replica_id"]
+        if not self._has_value or (ts, rid) > (self._timestamp, self._replica_id):
+            self._value = operation
+            self._timestamp = ts
+            self._replica_id = rid
+            self._has_value = True
 
     def get_operations(self) -> List[tuple]:
         """Get all unsync'd operations.
@@ -73,18 +80,26 @@ class LWWRegister(CmRDT):
         Returns:
             List of (value, metadata) tuples where metadata has 'timestamp' and 'replica_id'
         """
-        # TODO: Implement
-        pass
+        if not self._has_value:
+            return []
+        return [(self._value, {"timestamp": self._timestamp, "replica_id": self._replica_id})]
 
     def __eq__(self, other: Any) -> bool:
         """Check if two LWW registers have the same state."""
-        # TODO: Implement
-        pass
+        if not isinstance(other, LWWRegister):
+            return False
+        return (
+            self._has_value == other._has_value
+            and self._value == other._value
+            and self._timestamp == other._timestamp
+            and self._replica_id == other._replica_id
+        )
 
     def __repr__(self) -> str:
         """Return string representation of the register state."""
-        # TODO: Implement
-        pass
+        if not self._has_value:
+            return "LWWRegister(empty)"
+        return f"LWWRegister({self._value!r}, ts={self._timestamp}, rid={self._replica_id!r})"
 
 
 class MVRegister(CmRDT):
@@ -122,8 +137,10 @@ class MVRegister(CmRDT):
         Args:
             replica_id: The ID of this replica
         """
-        # TODO: Implement
-        pass
+        self._replica_id = replica_id
+        self._vv: Dict[str, int] = {}
+        # Список (value, vv, replica_id) — replica_id исходного writer-а
+        self._values: List[Tuple[Any, Dict[str, int], str]] = []
 
     def write(self, value: Any) -> None:
         """Execute a write operation from this replica.
@@ -133,17 +150,43 @@ class MVRegister(CmRDT):
         Args:
             value: The value to write
         """
-        # TODO: Implement
-        pass
+        self._vv[self._replica_id] = self._vv.get(self._replica_id, 0) + 1
+        vv_copy = dict(self._vv)
+        self._apply(value, vv_copy, self._replica_id)
 
+    def _compare_vv(self, a, b):
+        """-1 если a < b, 0 если a == b, 1 если a > b, None если несравнимы."""
+        keys = set(a) | set(b)
+        a_le_b = all(a.get(k, 0) <= b.get(k, 0) for k in keys)
+        b_le_a = all(b.get(k, 0) <= a.get(k, 0) for k in keys)
+        if a_le_b and b_le_a:
+            return 0
+        if a_le_b:
+            return -1
+        if b_le_a:
+            return 1
+        return None  # concurrent
+    
+    def _apply(self, value: Any, vv: Dict[str, int], replica_id: str) -> None:
+        # Если новая операция устарела или совпадает — игнорируем
+        for _, existing_vv, _ in self._values:
+            cmp = self._compare_vv(vv, existing_vv)
+            if cmp in (-1, 0):
+                return
+        # Удаляем все dominated-значения
+        self._values = [
+            (v, vv2, rid) for v, vv2, rid in self._values
+            if self._compare_vv(vv2, vv) != -1
+        ]
+        self._values.append((value, dict(vv), replica_id))
+    
     def read(self) -> set:
         """Read all current values.
         
         Returns:
             A set of all causally incomparable values
         """
-        # TODO: Implement
-        pass
+        return {v for v, _, _ in self._values}
 
     def apply_operation(self, operation: Any, metadata: Any = None) -> None:
         """Apply a write operation to this replica.
@@ -152,8 +195,14 @@ class MVRegister(CmRDT):
             operation: The value that was written
             metadata: Dict with 'replica_id' and 'vv' (version vector)
         """
-        # TODO: Implement
-        pass
+        if metadata is None:
+            return
+        vv = metadata["vv"]
+        rid = metadata.get("replica_id", "")
+        # Обновляем свой vv (покомпонентный max)
+        for k, val in vv.items():
+            self._vv[k] = max(self._vv.get(k, 0), val)
+        self._apply(operation, vv, rid)
 
     def get_operations(self) -> List[tuple]:
         """Get all unsync'd operations.
@@ -161,15 +210,19 @@ class MVRegister(CmRDT):
         Returns:
             List of (operation, metadata) tuples
         """
-        # TODO: Implement
-        pass
+        return [
+            (v, {"replica_id": rid, "vv": dict(vv)})
+            for v, vv, rid in self._values
+        ]
 
     def __eq__(self, other: Any) -> bool:
         """Check if two MV registers have the same values."""
-        # TODO: Implement
-        pass
+        if not isinstance(other, MVRegister):
+            return False
+        s1 = {(v, tuple(sorted(vv.items()))) for v, vv, _ in self._values}
+        s2 = {(v, tuple(sorted(vv.items()))) for v, vv, _ in other._values}
+        return s1 == s2
 
     def __repr__(self) -> str:
         """Return string representation of the register state."""
-        # TODO: Implement
-        pass
+        return f"MVRegister(values={self._values})"
